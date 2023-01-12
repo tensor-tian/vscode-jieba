@@ -1,5 +1,7 @@
+import * as path from "path";
 import * as vscode from "vscode";
-import { parseAllSelections } from "./parse";
+
+import { Token, parseAllSelections, parseLine } from "./parse";
 
 export function forwardWord() {
   const editor = vscode.window.activeTextEditor;
@@ -92,6 +94,86 @@ export function selectWord() {
 
   editor.selections = newSelections;
 }
+export function selectWordForward() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    return;
+  }
+  const document = vscode.window.activeTextEditor!.document;
+
+  const { anchor, active } = editor.selection;
+  const lineNum = active.line;
+  const line = document.lineAt(lineNum);
+  const isMarkdown = vscode.window
+    .activeTextEditor!.document.fileName.toLowerCase()
+    .endsWith(".md");
+  const cursor =
+    !isMarkdown && active.character > 0
+      ? active.character - 1
+      : active.character;
+
+  // line end
+  if (active.isEqual(line.range.end)) {
+    const nextLineStart = new vscode.Position(active.line + 1, 0);
+    editor.selection = new vscode.Selection(anchor, nextLineStart);
+    return;
+  }
+
+  const tokens = parseLine(lineNum);
+  console.log(tokens.map((t) => t.word).join("|"));
+  let idx = tokens.findIndex((token) =>
+    isMarkdown
+      ? cursor === 0 || (token.start < cursor && token.end >= cursor)
+      : token.start <= cursor && token.end > cursor
+  );
+  // console.log("found", idx, cursor, tokens[idx]);
+  if (idx === -1) {
+    return;
+  }
+  const moveAnchor =
+    isMarkdown &&
+    anchor.line === lineNum &&
+    anchor.character > tokens[idx].start;
+  const start = moveAnchor
+    ? new vscode.Position(lineNum, tokens[idx].start)
+    : anchor;
+
+  // move forward
+  if (!isMarkdown || (tokens[idx].end === cursor && !moveAnchor)) {
+    idx++;
+  }
+
+  // skip whitespace tokens
+  while (idx < tokens.length && isWhiteSpace(tokens[idx].word)) {
+    idx++;
+  }
+  // console.log(idx, tokens[idx]);
+  // move to next line
+  if (idx === tokens.length) {
+    const nextLineStart = new vscode.Position(active.line + 1, 0);
+    editor.selection = new vscode.Selection(anchor, nextLineStart);
+    return;
+  }
+  const end = new vscode.Position(
+    lineNum,
+    isMarkdown ? tokens[idx].end : tokens[idx].start + 1
+  );
+  editor.selection = new vscode.Selection(start, end);
+}
+
+export function selectWordBackward() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    return;
+  }
+  const document = vscode.window.activeTextEditor!.document;
+
+  const primarySelection = editor.selections[0];
+  const cursor = primarySelection.active;
+  const line = document.lineAt(cursor.line);
+  if (primarySelection.active.isEqual(line.range.start)) {
+  }
+}
 
 function searchForward(): {
   newSelections: vscode.Selection[];
@@ -119,9 +201,10 @@ function searchForward(): {
       isWhiteSpace(line.text[cursor.character])
     ) {
       const nonSpacePos = findFirstNonSpace(line.text.slice(cursor.character));
-      const nextPos = nonSpacePos === -1
-        ? line.range.end.character
-        : cursor.character + nonSpacePos;
+      const nextPos =
+        nonSpacePos === -1
+          ? line.range.end.character
+          : cursor.character + nonSpacePos;
       const nextNonSpace = new vscode.Position(cursor.line, nextPos);
       rangesToDelete.push(new vscode.Range(cursor, nextNonSpace));
       cursor = nextNonSpace;
@@ -181,10 +264,11 @@ function searchBackward(): {
      * then continue the process of moving backward.
      */
     if (
-      cursor.character !== 0 && isWhiteSpace(line.text[cursor.character - 1])
+      cursor.character !== 0 &&
+      isWhiteSpace(line.text[cursor.character - 1])
     ) {
       const nonSpacePos = findLastNonSpace(
-        line.text.slice(0, cursor.character),
+        line.text.slice(0, cursor.character)
       );
       const nextPos = nonSpacePos === -1 ? 0 : nonSpacePos;
       const whitespaceStart = new vscode.Position(cursor.line, nextPos + 1);
