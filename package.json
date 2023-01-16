@@ -82,7 +82,20 @@
         "command": "jieba.selectWordForward",
         "title": "Jieba: Select Word Forward"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "extra words",
+      "properties": {
+        "jieba.words": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "预定义分词"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
